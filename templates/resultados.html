@@ -2,45 +2,73 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Resultados de Validación</title>
+    <title>Resultados de Cálculo y Extracción</title>
     <style>
-        body { font-family: sans-serif; background-color: #f4f7fa; }
-        .container { background-color: white; max-width: 900px; margin: 40px auto; padding: 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f4f7fa; }
+        .container { background-color: white; max-width: 1200px; margin: 40px auto; padding: 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         h1, h2 { color: #1a237e; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
         th { background-color: #f2f2f2; font-weight: bold; }
-        .status-ok { color: #28a745; font-weight: bold; }
-        .status-error { color: #dc3545; font-weight: bold; }
-        .status-warn { color: #ffc107; font-weight: bold; }
-        a { color: #007bff; text-decoration: none; display: inline-block; margin-top: 20px; }
+        a { color: #007bff; text-decoration: none; display: inline-block; margin-top: 30px; }
+        .summary-container { display: flex; gap: 20px; margin-top: 20px; }
+        .summary-box { flex: 1; background-color: #e9f5ec; color: #155724; padding: 20px; border-radius: 8px; }
+        .summary-box h3 { margin-top: 0; }
+        .summary-box p { margin: 5px 0; }
+        .summary-box .final-total { font-weight: bold; font-size: 1.2em; border-top: 1px solid #c3e6cb; padding-top: 10px; margin-top: 10px; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Reporte de Validación</h1>
+        <h1>Resultados de Cálculo y Extracción</h1>
         <h2>Archivo: {{ nombre_archivo }}</h2>
+
+        <!-- Sección de Resumen del Cálculo -->
+        <h2>Resumen del Cálculo de Impuestos (RESICO)</h2>
+        <div class="summary-container">
+            <div class="summary-box">
+                <h3>Cálculo de ISR</h3>
+                <p>Total Ingresos: <strong>${{ "%.2f"|format(calculo.total_ingresos) }}</strong></p>
+                <p>Tasa Aplicada: <strong>{{ "%.3f"|format(calculo.tasa_isr_aplicada * 100) }}%</strong></p>
+                <p>Impuesto Causado: <strong>${{ "%.2f"|format(calculo.impuesto_causado) }}</strong></p>
+                <p>(-) Retenciones de ISR: <strong>${{ "%.2f"|format(calculo.total_retenciones_isr) }}</strong></p>
+                <p class="final-total">ISR a Pagar: ${{ "%.2f"|format(calculo.isr_a_pagar) }}</p>
+            </div>
+            <div class="summary-box">
+                <h3>Cálculo de IVA</h3>
+                <p>Actividad: <strong>Arrendamiento Casa Habitación</strong></p>
+                <p>Estatus: <strong>Actividad Exenta de IVA</strong></p>
+                <p class="final-total">IVA a Pagar: ${{ "%.2f"|format(calculo.iva_a_pagar) }}</p>
+            </div>
+        </div>
+
+        <!-- Sección de Detalle de Facturas -->
+        <h2 style="margin-top: 40px;">Detalle de Facturas Procesadas</h2>
         <table>
             <thead>
                 <tr>
-                    <th style="width:5%;">#</th>
-                    <th>Punto de Validación</th>
-                    <th style="width:15%;">Estatus</th>
-                    <th>Observaciones</th>
+                    <th>UUID</th>
+                    <th>Emisor RFC</th>
+                    <th>Receptor RFC</th>
+                    <th>Subtotal</th>
+                    <th>ISR Retenido</th>
+                    <th>Total</th>
                 </tr>
             </thead>
             <tbody>
-                {% for resultado in resultados %}
+                {% for factura in facturas %}
                 <tr>
-                    <td>{{ resultado.id }}</td>
-                    <td>{{ resultado.punto }}</td>
-                    <td><span class="status-{{ resultado.status.split(' ')[0] | lower }}">{{ resultado.status }}</span></td>
-                    <td>{{ resultado.obs }}</td>
+                    <td>{{ factura.uuid or factura.error }}</td>
+                    <td>{{ factura.emisor_rfc }}</td>
+                    <td>{{ factura.receptor_rfc }}</td>
+                    <td>${{ "%.2f"|format(factura.subtotal) if factura.subtotal is not none else '' }}</td>
+                    <td>${{ "%.2f"|format(factura.isr_retenido) if factura.isr_retenido is not none else '' }}</td>
+                    <td>${{ "%.2f"|format(factura.total) if factura.total is not none else '' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        <a href="/">← Validar otro archivo</a>
+        <a href="/">← Volver a Cargar</a>
     </div>
 </body>
 </html>
