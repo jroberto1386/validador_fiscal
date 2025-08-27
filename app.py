@@ -1,8 +1,8 @@
 # ==============================================================================
-# app.py - v2.3 - Servidor con Filtro por Mes
+# app.py - v2.4 - Servidor con Corrección de Sintaxis
 # ==============================================================================
-# Esta versión añade la capacidad de seleccionar un mes y año específicos
-# para que el cálculo de impuestos sea preciso al periodo.
+# Esta versión corrige un error de sintaxis en el formateo de texto
+# que impedía el despliegue de la aplicación.
 # ==============================================================================
 
 # --- 1. Importación de Librerías ---
@@ -52,13 +52,11 @@ def procesar_zip_con_xml(zip_file):
                     })
     return datos_extraidos
 
-# --- 4. Motor de Cálculo Fiscal (ACTUALIZADO) ---
+# --- 4. Motor de Cálculo Fiscal (sin cambios) ---
 def calcular_impuestos_resico(lista_facturas, rfc_propio, mes, anio):
     """
     Toma la lista de facturas y calcula los impuestos para un mes y año específicos.
     """
-    # --- CORRECCIÓN CLAVE ---
-    # Filtramos las facturas por mes y año antes de cualquier cálculo.
     facturas_del_periodo = [
         f for f in lista_facturas 
         if f.get('fecha') and f.get('fecha').month == mes and f.get('fecha').year == anio
@@ -83,9 +81,8 @@ def calcular_impuestos_resico(lista_facturas, rfc_propio, mes, anio):
         'facturas_procesadas_periodo': len(facturas_del_periodo)
     }
 
-# --- 5. Lógica para el Validador de Excel (sin cambios) ---
+# --- 5. Lógica para el Validador de Excel (CORREGIDA) ---
 def ejecutar_validaciones(df_isr, df_facturacion, df_resumen, df_iva):
-    # (El código de esta función no cambia)
     resultados = []
     meses_a_validar = ['6', '7']
     df_isr.columns = df_isr.columns.map(str)
@@ -99,7 +96,8 @@ def ejecutar_validaciones(df_isr, df_facturacion, df_resumen, df_iva):
             if abs(ingresos_calculo - ingresos_facturas) < 0.01:
                 resultados.append({'id': 1, 'punto': f'Conciliación de Ingresos (Mes {mes_idx})', 'status': '✅ Correcto', 'obs': f'Los ingresos (${ingresos_calculo:,.2f}) coinciden con los CFDI.'})
             else:
-                resultados.append({'id': 1, 'punto': f'Conciliación de Ingresos (Mes {mes_idx})', 'status': '❌ Error', 'obs': f'Ingresos del cálculo (${ingresos_calculo:,.2f}) no coinciden con los CFDI (${ingresos_facturas,.2f}).'})
+                # --- CORRECCIÓN DE SINTAXIS AQUÍ ---
+                resultados.append({'id': 1, 'punto': f'Conciliación de Ingresos (Mes {mes_idx})', 'status': '❌ Error', 'obs': f'Ingresos del cálculo (${ingresos_calculo:,.2f}) no coinciden con los CFDI (${ingresos_facturas:,.2f}).'})
         except Exception as e:
             resultados.append({'id': 1, 'punto': f'Conciliación de Ingresos (Mes {mes_idx})', 'status': '⚠️ Advertencia', 'obs': f'No se pudo realizar la validación. Error: {e}'})
         try:
@@ -132,14 +130,13 @@ def ejecutar_validaciones(df_isr, df_facturacion, df_resumen, df_iva):
             resultados.append({'id': 4, 'punto': f'Verificación de Retenciones (Mes {mes_idx})', 'status': '⚠️ Advertencia', 'obs': f'No se pudo realizar la validación. Error: {e}'})
     return resultados
 
-# --- 6. Definición de Rutas de la Aplicación (ACTUALIZADA) ---
+# --- 6. Definición de Rutas de la Aplicación (sin cambios) ---
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/validar_excel', methods=['POST'])
 def validar_excel():
-    # (El código de esta función no cambia)
     if 'archivo_excel' not in request.files: return "Error: No se encontró el archivo.", 400
     file = request.files['archivo_excel']
     if file.filename == '': return "Error: No se seleccionó ningún archivo.", 400
@@ -157,8 +154,6 @@ def validar_excel():
 
 @app.route('/procesar_zip', methods=['POST'])
 def procesar_zip():
-    # --- CORRECCIÓN CLAVE ---
-    # Recibimos el mes y el año del formulario
     if 'archivo_zip' not in request.files or 'rfc_contribuyente' not in request.form or 'periodo' not in request.form:
         return "Error: Faltan datos (archivo, RFC o periodo).", 400
     
@@ -176,7 +171,6 @@ def procesar_zip():
             lista_facturas_total = procesar_zip_con_xml(file)
             calculo = calcular_impuestos_resico(lista_facturas_total, rfc.upper(), mes, anio)
             
-            # Filtramos la lista de facturas para mostrar solo las del periodo
             facturas_a_mostrar = [f for f in lista_facturas_total if not f.get('fecha') or (f.get('fecha').month == mes and f.get('fecha').year == anio)]
 
             return render_template('resultados_xml.html', 
