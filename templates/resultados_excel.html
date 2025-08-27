@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Resultados de Validación</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f7fa; }
+        .container { background-color: white; max-width: 900px; margin: 40px auto; padding: 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1, h2 { color: #1a237e; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f2f2f2; font-weight: bold; }
+        a { color: #007bff; text-decoration: none; display: inline-block; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Reporte de Validación</h1>
+        <h2>Archivo: {{ nombre_archivo }}</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width:5%;">#</th>
+                    <th>Punto de Validación</th>
+                    <th style="width:15%;">Estatus</th>
+                    <th>Observaciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for resultado in resultados %}
+                <tr>
+                    <td>{{ resultado.id }}</td>
+                    <td>{{ resultado.punto }}</td>
+                    <td>{{ resultado.status }}</td>
+                    <td>{{ resultado.obs }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <a href="/">← Validar otro archivo</a>
+    </div>
+</body>
+</html>
