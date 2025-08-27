@@ -1,21 +1,21 @@
 # ==============================================================================
-# app.py - v2.1 - Servidor con Lector XML y Motor de Cálculo Fiscal
+# app.py - v2.2 - Servidor con Lector XML, Motor de Cálculo y Manejo de Errores
 # ==============================================================================
-# Esta versión añade el "Pilar 2": un motor de cálculo que toma los datos
-# extraídos del XML y determina los impuestos para RESICO.
+# Esta versión añade un manejo de errores robusto para archivos inválidos
+# dentro del ZIP, evitando que la aplicación se detenga.
 # ==============================================================================
 
 # --- 1. Importación de Librerías ---
 import pandas as pd
 from flask import Flask, render_template, request
-import xml.etree.ElementTree as ET # Para leer XML
-import zipfile # Para manejar archivos ZIP
-import io # Para leer archivos en memoria
+import xml.etree.ElementTree as ET
+import zipfile
+import io
 
 # --- 2. Inicialización de la Aplicación ---
 app = Flask(__name__)
 
-# --- 3. Lógica para el Lector de XML ---
+# --- 3. Lógica para el Lector de XML (CORREGIDA) ---
 
 def procesar_zip_con_xml(zip_file):
     """
@@ -26,7 +26,8 @@ def procesar_zip_con_xml(zip_file):
     
     with zipfile.ZipFile(zip_file, 'r') as zf:
         for nombre_archivo in zf.namelist():
-            if nombre_archivo.lower().endswith('.xml'):
+            # Ignoramos los archivos de sistema de macOS que a veces se incluyen en los ZIP
+            if nombre_archivo.lower().endswith('.xml') and not nombre_archivo.startswith('__MACOSX'):
                 try:
                     contenido_xml = zf.read(nombre_archivo)
                     root = ET.fromstring(contenido_xml)
@@ -36,17 +37,15 @@ def procesar_zip_con_xml(zip_file):
                         'tfd': 'http://www.sat.gob.mx/TimbreFiscalDigital'
                     }
                     
-                    # Extraemos datos adicionales como la fecha y las retenciones
                     fecha = root.get('Fecha')
                     emisor_rfc = root.find('cfdi:Emisor', ns).get('Rfc')
                     receptor_rfc = root.find('cfdi:Receptor', ns).get('Rfc')
                     subtotal = float(root.get('SubTotal'))
                     total = float(root.get('Total'))
                     
-                    # Buscamos las retenciones de ISR
                     isr_retenido = 0.0
-                    retenciones_node = root.find('.//cfdi:Retencion', ns)
-                    if retenciones_node is not None and retenciones_node.get('Impuesto') == '001': # 001 es el código para ISR
+                    retenciones_node = root.find('.//cfdi:Retenciones/cfdi:Retencion[@Impuesto="001"]', ns)
+                    if retenciones_node is not None:
                         isr_retenido = float(retenciones_node.get('Importe'))
                     
                     timbre = root.find('.//tfd:TimbreFiscalDigital', ns)
@@ -55,54 +54,41 @@ def procesar_zip_con_xml(zip_file):
                     datos_factura = {
                         'archivo': nombre_archivo, 'uuid': uuid, 'fecha': fecha,
                         'emisor_rfc': emisor_rfc, 'receptor_rfc': receptor_rfc,
-                        'subtotal': subtotal, 'total': total, 'isr_retenido': isr_retenido
+                        'subtotal': subtotal, 'total': total, 'isr_retenido': isr_retenido,
+                        'error': None # Sin errores
                     }
                     datos_extraidos.append(datos_factura)
                 except Exception as e:
-                    datos_extraidos.append({'archivo': nombre_archivo, 'error': f'Error al procesar: {e}'})
+                    # --- CORRECCIÓN CLAVE ---
+                    # Si un archivo falla, creamos un registro de error completo
+                    # para que la tabla de resultados no se rompa.
+                    datos_extraidos.append({
+                        'archivo': nombre_archivo, 'uuid': 'Error de Lectura', 'fecha': '',
+                        'emisor_rfc': '', 'receptor_rfc': '',
+                        'subtotal': 0, 'total': 0, 'isr_retenido': 0,
+                        'error': f'No es un CFDI válido: {e}'
+                    })
 
     return datos_extraidos
 
-# --- 4. NUEVO PILAR 2: Motor de Cálculo Fiscal ---
-
+# --- 4. Motor de Cálculo Fiscal (sin cambios) ---
 def calcular_impuestos_resico(lista_facturas, rfc_propio):
-    """
-    Toma la lista de facturas extraídas y calcula los impuestos para RESICO.
-    """
-    # Filtramos solo las facturas de ingresos (donde nosotros somos el emisor)
-    facturas_ingresos = [f for f in lista_facturas if f.get('emisor_rfc') == rfc_propio]
-    
-    # 1. Sumamos los ingresos del mes
+    facturas_ingresos = [f for f in lista_facturas if f.get('emisor_rfc') == rfc_propio and f.get('error') is None]
     total_ingresos = sum(f.get('subtotal', 0) for f in facturas_ingresos)
-    
-    # 2. Determinamos la tasa de ISR según la tabla de RESICO (simplificada)
     tasa_isr = 0.0
     if total_ingresos <= 25000: tasa_isr = 0.01
     elif total_ingresos <= 50000: tasa_isr = 0.011
     elif total_ingresos <= 83333.33: tasa_isr = 0.015
     elif total_ingresos <= 208333.33: tasa_isr = 0.02
     else: tasa_isr = 0.025
-    
-    # 3. Calculamos el impuesto causado
     impuesto_causado = total_ingresos * tasa_isr
-    
-    # 4. Sumamos las retenciones de ISR (solo de facturas a personas morales)
     total_retenciones_isr = sum(f.get('isr_retenido', 0) for f in facturas_ingresos if len(f.get('receptor_rfc', '')) == 12)
-    
-    # 5. Determinamos el impuesto a pagar
     isr_a_pagar = impuesto_causado - total_retenciones_isr
-    
-    # 6. Para este caso (Arrendamiento Casa Habitación), el IVA es 0.
     iva_a_pagar = 0.0
-    
-    # Devolvemos un diccionario con todos los resultados del cálculo
     return {
-        'total_ingresos': total_ingresos,
-        'tasa_isr_aplicada': tasa_isr,
-        'impuesto_causado': impuesto_causado,
-        'total_retenciones_isr': total_retenciones_isr,
-        'isr_a_pagar': isr_a_pagar,
-        'iva_a_pagar': iva_a_pagar
+        'total_ingresos': total_ingresos, 'tasa_isr_aplicada': tasa_isr,
+        'impuesto_causado': impuesto_causado, 'total_retenciones_isr': total_retenciones_isr,
+        'isr_a_pagar': isr_a_pagar, 'iva_a_pagar': iva_a_pagar
     }
 
 # --- 5. Lógica para el Validador de Excel (sin cambios) ---
@@ -154,15 +140,13 @@ def ejecutar_validaciones(df_isr, df_facturacion, df_resumen, df_iva):
             resultados.append({'id': 4, 'punto': f'Verificación de Retenciones (Mes {mes_idx})', 'status': '⚠️ Advertencia', 'obs': f'No se pudo realizar la validación. Error: {e}'})
     return resultados
 
-# --- 6. Definición de Rutas de la Aplicación ---
-
+# --- 6. Definición de Rutas de la Aplicación (sin cambios) ---
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/validar_excel', methods=['POST'])
 def validar_excel():
-    # (El código de esta función no cambia)
     if 'archivo_excel' not in request.files: return "Error: No se encontró el archivo.", 400
     file = request.files['archivo_excel']
     if file.filename == '': return "Error: No se seleccionó ningún archivo.", 400
@@ -182,29 +166,19 @@ def validar_excel():
 def procesar_zip():
     if 'archivo_zip' not in request.files or 'rfc_contribuyente' not in request.form:
         return "Error: Faltan datos (archivo zip o RFC).", 400
-    
     file = request.files['archivo_zip']
     rfc = request.form['rfc_contribuyente']
-    
-    if file.filename == '' or rfc == '':
-        return "Error: No se seleccionó archivo o no se ingresó RFC.", 400
-        
+    if file.filename == '' or rfc == '': return "Error: No se seleccionó archivo o no se ingresó RFC.", 400
     if file and file.filename.lower().endswith('.zip'):
         try:
-            # Pilar 1: Leemos los XML
             lista_facturas = procesar_zip_con_xml(file)
-            
-            # Pilar 2: Calculamos los impuestos
             calculo = calcular_impuestos_resico(lista_facturas, rfc.upper())
-            
-            # Enviamos ambos resultados a la plantilla
             return render_template('resultados_xml.html', 
                                    facturas=lista_facturas, 
                                    nombre_archivo=file.filename,
                                    calculo=calculo)
         except Exception as e:
             return f"Error al procesar el archivo ZIP. Detalle: {e}", 500
-            
     return "Error: El archivo debe ser de tipo .zip", 400
 
 # --- 7. Punto de Entrada para Ejecución ---
