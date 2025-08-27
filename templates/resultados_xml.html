@@ -7,6 +7,8 @@
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #f4f7fa; }
         .container { background-color: white; max-width: 1200px; margin: 40px auto; padding: 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         h1, h2 { color: #1a237e; }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e0e0e0; padding-bottom: 10px; }
+        .btn-download { background-color: #007bff; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold; }
         table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; word-break: break-all; }
         th { background-color: #f2f2f2; font-weight: bold; }
@@ -21,11 +23,16 @@
 </head>
 <body>
     <div class="container">
-        <h1>Resultados de Cálculo y Extracción</h1>
-        <h2>Archivo: {{ nombre_archivo }} | <span style="color: #555;">Periodo Calculado: {{ periodo }}</span></h2>
+        <div class="header">
+            <div>
+                <h1>Resultados de Cálculo y Extracción</h1>
+                <h2>{{ nombre_contribuyente }} | Periodo: {{ periodo }}</h2>
+            </div>
+            <a href="/descargar_excel" class="btn-download">⬇️ Descargar Papel de Trabajo (.xlsx)</a>
+        </div>
 
         <!-- Sección de Resumen del Cálculo -->
-        <h2>Resumen del Cálculo de Impuestos (RESICO)</h2>
+        <h2 style="margin-top: 30px;">Resumen del Cálculo de Impuestos (RESICO)</h2>
         <div class="summary-container">
             <div class="summary-box">
                 <h3>Cálculo de ISR</h3>
@@ -44,13 +51,12 @@
         </div>
 
         <!-- Sección de Detalle de Facturas -->
-        <h2 style="margin-top: 40px;">Detalle de Facturas Procesadas del Periodo ({{ calculo.facturas_procesadas_periodo }} encontradas)</h2>
+        <h2 style="margin-top: 40px;">Detalle de Facturas Procesadas del Periodo</h2>
         <table>
             <thead>
                 <tr>
                     <th>Fecha</th>
                     <th>UUID / Error</th>
-                    <th>Emisor RFC</th>
                     <th>Receptor RFC</th>
                     <th>Subtotal</th>
                     <th>ISR Retenido</th>
@@ -61,7 +67,6 @@
                 <tr class="{{ 'error-row' if factura.error }}">
                     <td>{{ factura.fecha.strftime('%Y-%m-%d') if factura.fecha else 'N/A' }}</td>
                     <td>{{ factura.uuid if not factura.error else factura.error }}</td>
-                    <td>{{ factura.emisor_rfc }}</td>
                     <td>{{ factura.receptor_rfc }}</td>
                     <td>${{ "%.2f"|format(factura.subtotal) }}</td>
                     <td>${{ "%.2f"|format(factura.isr_retenido) }}</td>
