@@ -22,14 +22,14 @@
 <body>
     <div class="container">
         <h1>Resultados de Cálculo y Extracción</h1>
-        <h2>Archivo: {{ nombre_archivo }}</h2>
+        <h2>Archivo: {{ nombre_archivo }} | <span style="color: #555;">Periodo Calculado: {{ periodo }}</span></h2>
 
         <!-- Sección de Resumen del Cálculo -->
         <h2>Resumen del Cálculo de Impuestos (RESICO)</h2>
         <div class="summary-container">
             <div class="summary-box">
                 <h3>Cálculo de ISR</h3>
-                <p>Total Ingresos: <strong>${{ "%.2f"|format(calculo.total_ingresos) }}</strong></p>
+                <p>Total Ingresos del Periodo: <strong>${{ "%.2f"|format(calculo.total_ingresos) }}</strong></p>
                 <p>Tasa Aplicada: <strong>{{ "%.3f"|format(calculo.tasa_isr_aplicada * 100) }}%</strong></p>
                 <p>Impuesto Causado: <strong>${{ "%.2f"|format(calculo.impuesto_causado) }}</strong></p>
                 <p>(-) Retenciones de ISR: <strong>${{ "%.2f"|format(calculo.total_retenciones_isr) }}</strong></p>
@@ -44,27 +44,27 @@
         </div>
 
         <!-- Sección de Detalle de Facturas -->
-        <h2 style="margin-top: 40px;">Detalle de Facturas Procesadas</h2>
+        <h2 style="margin-top: 40px;">Detalle de Facturas Procesadas del Periodo ({{ calculo.facturas_procesadas_periodo }} encontradas)</h2>
         <table>
             <thead>
                 <tr>
+                    <th>Fecha</th>
                     <th>UUID / Error</th>
                     <th>Emisor RFC</th>
                     <th>Receptor RFC</th>
                     <th>Subtotal</th>
                     <th>ISR Retenido</th>
-                    <th>Total</th>
                 </tr>
             </thead>
             <tbody>
                 {% for factura in facturas %}
                 <tr class="{{ 'error-row' if factura.error }}">
+                    <td>{{ factura.fecha.strftime('%Y-%m-%d') if factura.fecha else 'N/A' }}</td>
                     <td>{{ factura.uuid if not factura.error else factura.error }}</td>
                     <td>{{ factura.emisor_rfc }}</td>
                     <td>{{ factura.receptor_rfc }}</td>
                     <td>${{ "%.2f"|format(factura.subtotal) }}</td>
                     <td>${{ "%.2f"|format(factura.isr_retenido) }}</td>
-                    <td>${{ "%.2f"|format(factura.total) }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
