@@ -39,6 +39,11 @@ def ejecutar_validaciones(df_isr, df_facturacion, df_resumen, df_iva):
     # En una versión real, esto iteraría por todos los meses con ingresos.
     meses_a_validar = ['6', '7']
     
+    # --- CORRECCIÓN APLICADA AQUÍ ---
+    # Convertimos los nombres de las columnas a tipo string para evitar errores.
+    df_isr.columns = df_isr.columns.map(str)
+    df_iva.columns = df_iva.columns.map(str)
+    
     for mes_idx in meses_a_validar:
         # Extraemos los ingresos del mes actual del cálculo de ISR
         ingresos_calculo = df_isr.loc['Ingresos cobrados del mes', mes_idx]
