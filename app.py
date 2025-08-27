@@ -1,8 +1,8 @@
 # ==============================================================================
-# app.py - v2.2 - Servidor con Lector XML, Motor de Cálculo y Manejo de Errores
+# app.py - v2.3 - Servidor con Filtro por Mes
 # ==============================================================================
-# Esta versión añade un manejo de errores robusto para archivos inválidos
-# dentro del ZIP, evitando que la aplicación se detenga.
+# Esta versión añade la capacidad de seleccionar un mes y año específicos
+# para que el cálculo de impuestos sea preciso al periodo.
 # ==============================================================================
 
 # --- 1. Importación de Librerías ---
@@ -11,69 +11,60 @@ from flask import Flask, render_template, request
 import xml.etree.ElementTree as ET
 import zipfile
 import io
+from datetime import datetime
 
 # --- 2. Inicialización de la Aplicación ---
 app = Flask(__name__)
 
-# --- 3. Lógica para el Lector de XML (CORREGIDA) ---
-
+# --- 3. Lógica para el Lector de XML (sin cambios) ---
 def procesar_zip_con_xml(zip_file):
-    """
-    Recibe un archivo ZIP, lo descomprime en memoria, lee cada XML,
-    extrae datos clave y los devuelve en una lista.
-    """
     datos_extraidos = []
-    
     with zipfile.ZipFile(zip_file, 'r') as zf:
         for nombre_archivo in zf.namelist():
-            # Ignoramos los archivos de sistema de macOS que a veces se incluyen en los ZIP
             if nombre_archivo.lower().endswith('.xml') and not nombre_archivo.startswith('__MACOSX'):
                 try:
                     contenido_xml = zf.read(nombre_archivo)
                     root = ET.fromstring(contenido_xml)
-                    
-                    ns = {
-                        'cfdi': 'http://www.sat.gob.mx/cfd/4',
-                        'tfd': 'http://www.sat.gob.mx/TimbreFiscalDigital'
-                    }
-                    
-                    fecha = root.get('Fecha')
+                    ns = {'cfdi': 'http://www.sat.gob.mx/cfd/4', 'tfd': 'http://www.sat.gob.mx/TimbreFiscalDigital'}
+                    fecha_str = root.get('Fecha')
+                    fecha_dt = datetime.fromisoformat(fecha_str.replace('T', ' '))
                     emisor_rfc = root.find('cfdi:Emisor', ns).get('Rfc')
                     receptor_rfc = root.find('cfdi:Receptor', ns).get('Rfc')
                     subtotal = float(root.get('SubTotal'))
                     total = float(root.get('Total'))
-                    
                     isr_retenido = 0.0
                     retenciones_node = root.find('.//cfdi:Retenciones/cfdi:Retencion[@Impuesto="001"]', ns)
-                    if retenciones_node is not None:
-                        isr_retenido = float(retenciones_node.get('Importe'))
-                    
+                    if retenciones_node is not None: isr_retenido = float(retenciones_node.get('Importe'))
                     timbre = root.find('.//tfd:TimbreFiscalDigital', ns)
                     uuid = timbre.get('UUID') if timbre is not None else 'No encontrado'
-                    
                     datos_factura = {
-                        'archivo': nombre_archivo, 'uuid': uuid, 'fecha': fecha,
+                        'archivo': nombre_archivo, 'uuid': uuid, 'fecha': fecha_dt,
                         'emisor_rfc': emisor_rfc, 'receptor_rfc': receptor_rfc,
                         'subtotal': subtotal, 'total': total, 'isr_retenido': isr_retenido,
-                        'error': None # Sin errores
+                        'error': None
                     }
                     datos_extraidos.append(datos_factura)
                 except Exception as e:
-                    # --- CORRECCIÓN CLAVE ---
-                    # Si un archivo falla, creamos un registro de error completo
-                    # para que la tabla de resultados no se rompa.
                     datos_extraidos.append({
-                        'archivo': nombre_archivo, 'uuid': 'Error de Lectura', 'fecha': '',
-                        'emisor_rfc': '', 'receptor_rfc': '',
-                        'subtotal': 0, 'total': 0, 'isr_retenido': 0,
-                        'error': f'No es un CFDI válido: {e}'
+                        'archivo': nombre_archivo, 'uuid': 'Error de Lectura', 'fecha': None,
+                        'emisor_rfc': '', 'receptor_rfc': '', 'subtotal': 0, 'total': 0,
+                        'isr_retenido': 0, 'error': f'No es un CFDI válido: {e}'
                     })
-
     return datos_extraidos
 
-# --- 4. Motor de Cálculo Fiscal (sin cambios) ---
-def calcular_impuestos_resico(lista_facturas, rfc_propio):
-    facturas_ingresos = [f for f in lista_facturas if f.get('emisor_rfc') == rfc_propio and f.get('error') is None]
+# --- 4. Motor de Cálculo Fiscal (ACTUALIZADO) ---
+def calcular_impuestos_resico(lista_facturas, rfc_propio, mes, anio):
+    """
+    Toma la lista de facturas y calcula los impuestos para un mes y año específicos.
+    """
+    # --- CORRECCIÓN CLAVE ---
+    # Filtramos las facturas por mes y año antes de cualquier cálculo.
+    facturas_del_periodo = [
+        f for f in lista_facturas 
+        if f.get('fecha') and f.get('fecha').month == mes and f.get('fecha').year == anio
+    ]
+    
+    facturas_ingresos = [f for f in facturas_del_periodo if f.get('emisor_rfc') == rfc_propio and f.get('error') is None]
     total_ingresos = sum(f.get('subtotal', 0) for f in facturas_ingresos)
     tasa_isr = 0.0
     if total_ingresos <= 25000: tasa_isr = 0.01
@@ -88,7 +79,8 @@ def calcular_impuestos_resico(lista_facturas, rfc_propio):
     return {
         'total_ingresos': total_ingresos, 'tasa_isr_aplicada': tasa_isr,
         'impuesto_causado': impuesto_causado, 'total_retenciones_isr': total_retenciones_isr,
-        'isr_a_pagar': isr_a_pagar, 'iva_a_pagar': iva_a_pagar
+        'isr_a_pagar': isr_a_pagar, 'iva_a_pagar': iva_a_pagar,
+        'facturas_procesadas_periodo': len(facturas_del_periodo)
     }
 
 # --- 5. Lógica para el Validador de Excel (sin cambios) ---
@@ -107,7 +99,7 @@ def ejecutar_validaciones(df_isr, df_facturacion, df_resumen, df_iva):
             if abs(ingresos_calculo - ingresos_facturas) < 0.01:
                 resultados.append({'id': 1, 'punto': f'Conciliación de Ingresos (Mes {mes_idx})', 'status': '✅ Correcto', 'obs': f'Los ingresos (${ingresos_calculo:,.2f}) coinciden con los CFDI.'})
             else:
-                resultados.append({'id': 1, 'punto': f'Conciliación de Ingresos (Mes {mes_idx})', 'status': '❌ Error', 'obs': f'Ingresos del cálculo (${ingresos_calculo:,.2f}) no coinciden con los CFDI (${ingresos_facturas:,.2f}).'})
+                resultados.append({'id': 1, 'punto': f'Conciliación de Ingresos (Mes {mes_idx})', 'status': '❌ Error', 'obs': f'Ingresos del cálculo (${ingresos_calculo:,.2f}) no coinciden con los CFDI (${ingresos_facturas,.2f}).'})
         except Exception as e:
             resultados.append({'id': 1, 'punto': f'Conciliación de Ingresos (Mes {mes_idx})', 'status': '⚠️ Advertencia', 'obs': f'No se pudo realizar la validación. Error: {e}'})
         try:
@@ -140,13 +132,14 @@ def ejecutar_validaciones(df_isr, df_facturacion, df_resumen, df_iva):
             resultados.append({'id': 4, 'punto': f'Verificación de Retenciones (Mes {mes_idx})', 'status': '⚠️ Advertencia', 'obs': f'No se pudo realizar la validación. Error: {e}'})
     return resultados
 
-# --- 6. Definición de Rutas de la Aplicación (sin cambios) ---
+# --- 6. Definición de Rutas de la Aplicación (ACTUALIZADA) ---
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/validar_excel', methods=['POST'])
 def validar_excel():
+    # (El código de esta función no cambia)
     if 'archivo_excel' not in request.files: return "Error: No se encontró el archivo.", 400
     file = request.files['archivo_excel']
     if file.filename == '': return "Error: No se seleccionó ningún archivo.", 400
@@ -164,21 +157,36 @@ def validar_excel():
 
 @app.route('/procesar_zip', methods=['POST'])
 def procesar_zip():
-    if 'archivo_zip' not in request.files or 'rfc_contribuyente' not in request.form:
-        return "Error: Faltan datos (archivo zip o RFC).", 400
+    # --- CORRECCIÓN CLAVE ---
+    # Recibimos el mes y el año del formulario
+    if 'archivo_zip' not in request.files or 'rfc_contribuyente' not in request.form or 'periodo' not in request.form:
+        return "Error: Faltan datos (archivo, RFC o periodo).", 400
+    
     file = request.files['archivo_zip']
     rfc = request.form['rfc_contribuyente']
-    if file.filename == '' or rfc == '': return "Error: No se seleccionó archivo o no se ingresó RFC.", 400
+    periodo = request.form['periodo'] # Formato "YYYY-MM"
+    
+    if file.filename == '' or rfc == '' or periodo == '':
+        return "Error: Debes completar todos los campos.", 400
+        
     if file and file.filename.lower().endswith('.zip'):
         try:
-            lista_facturas = procesar_zip_con_xml(file)
-            calculo = calcular_impuestos_resico(lista_facturas, rfc.upper())
+            anio, mes = map(int, periodo.split('-'))
+            
+            lista_facturas_total = procesar_zip_con_xml(file)
+            calculo = calcular_impuestos_resico(lista_facturas_total, rfc.upper(), mes, anio)
+            
+            # Filtramos la lista de facturas para mostrar solo las del periodo
+            facturas_a_mostrar = [f for f in lista_facturas_total if not f.get('fecha') or (f.get('fecha').month == mes and f.get('fecha').year == anio)]
+
             return render_template('resultados_xml.html', 
-                                   facturas=lista_facturas, 
+                                   facturas=facturas_a_mostrar, 
                                    nombre_archivo=file.filename,
-                                   calculo=calculo)
+                                   calculo=calculo,
+                                   periodo=f'{mes}/{anio}')
         except Exception as e:
             return f"Error al procesar el archivo ZIP. Detalle: {e}", 500
+            
     return "Error: El archivo debe ser de tipo .zip", 400
 
 # --- 7. Punto de Entrada para Ejecución ---
