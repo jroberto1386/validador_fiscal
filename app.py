@@ -39,8 +39,9 @@ def ejecutar_validaciones(df_isr, df_facturacion, df_resumen, df_iva):
     # En una versión real, esto iteraría por todos los meses con ingresos.
     meses_a_validar = ['6', '7']
     
-    # --- CORRECCIÓN APLICADA AQUÍ ---
-    # Convertimos los nombres de las columnas a tipo string para evitar errores.
+    # --- CORRECCIÓN CLAVE ---
+    # Nos aseguramos que los nombres de las columnas (que ahora son 1, 2, 3...)
+    # sean de tipo string para que coincidan con nuestra lista `meses_a_validar`.
     df_isr.columns = df_isr.columns.map(str)
     df_iva.columns = df_iva.columns.map(str)
     
@@ -134,12 +135,12 @@ def validar():
     # Si todo está en orden, procedemos a procesar
     if file:
         try:
-            # Leemos las diferentes hojas del archivo Excel en memoria usando pandas
-            # Usamos `header` y `index_col` para estructurar correctamente los datos
-            df_isr = pd.read_excel(file, sheet_name='Calculo ISR', index_col=0, header=4)
+            # --- CORRECCIÓN CLAVE ---
+            # Leemos las hojas del Excel indicando la fila correcta para los encabezados (la que tiene 1, 2, 3...)
+            df_isr = pd.read_excel(file, sheet_name='Calculo ISR', index_col=0, header=3)
             df_facturacion = pd.read_excel(file, sheet_name='Facturacion', header=5)
             df_resumen = pd.read_excel(file, sheet_name='RESUMEN', header=None)
-            df_iva = pd.read_excel(file, sheet_name='Calculo IVA', index_col=1, header=6)
+            df_iva = pd.read_excel(file, sheet_name='Calculo IVA', index_col=1, header=5)
 
             # Ejecutamos nuestra función de validación con los datos cargados
             resultados_validacion = ejecutar_validaciones(df_isr, df_facturacion, df_resumen, df_iva)
