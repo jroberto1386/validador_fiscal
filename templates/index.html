@@ -11,9 +11,10 @@
         h1, h2 { color: #1a237e; }
         h1 { text-align: center; width: 100%; margin-bottom: 40px; }
         p { color: #555; }
-        input[type="file"] { border: 2px dashed #c0c4cc; padding: 20px; border-radius: 5px; cursor: pointer; display: block; width: calc(100% - 44px); margin-bottom: 20px; background-color: #f8f9fa; }
-        input[type="text"] { font-size: 16px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: calc(100% - 22px); margin-bottom: 20px; text-transform: uppercase; }
-        .btn { background-color: #28a745; color: white; padding: 12px 25px; border: none; border-radius: 5px; font-size: 18px; cursor: pointer; transition: background-color 0.3s; }
+        input { font-size: 16px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; width: calc(100% - 22px); margin-bottom: 20px; }
+        input[type="file"] { border: 2px dashed #c0c4cc; padding: 20px; background-color: #f8f9fa; }
+        input[type="text"] { text-transform: uppercase; }
+        .btn { background-color: #28a745; color: white; padding: 12px 25px; border: none; font-size: 18px; cursor: pointer; transition: background-color 0.3s; }
         .btn:hover { background-color: #218838; }
         .divider { border-left: 1px solid #e0e0e0; }
     </style>
@@ -24,9 +25,10 @@
         <div class="container">
             <div class="box">
                 <h2>Paso 1: Generar Papel de Trabajo</h2>
-                <p>Sube un <strong>.zip</strong> con los XML y escribe el RFC del contribuyente.</p>
+                <p>Completa los datos y sube un <strong>.zip</strong> con todos los XML.</p>
                 <form action="/procesar_zip" method="post" enctype="multipart/form-data">
                     <input type="text" name="rfc_contribuyente" placeholder="RFC del Contribuyente" required>
+                    <input type="month" name="periodo" required>
                     <input type="file" name="archivo_zip" accept=".zip" required>
                     <button type="submit" class="btn">Procesar y Calcular</button>
                 </form>
