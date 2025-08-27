@@ -1,8 +1,11 @@
 # ==============================================================================
-# app.py - v3.1 - Versión Final con Corrección de Zona Horaria para Excel
+# app.py - v4.0 - Versión Final con Ciclo de Validación Completo
 # ==============================================================================
-# Esta versión corrige el error al generar el archivo Excel eliminando la
-# información de zona horaria de las fechas antes de escribirlas.
+# Esta versión finaliza el proyecto:
+# 1. Lee XML y calcula impuestos.
+# 2. Genera y permite descargar un Papel de Trabajo en Excel.
+# 3. La función de validación ahora puede leer y verificar la consistencia
+#    de ese mismo Papel de Trabajo generado, cerrando el ciclo.
 # ==============================================================================
 
 # --- 1. Importación de Librerías ---
@@ -18,7 +21,7 @@ import os
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-# --- 3. Lógica para el Lector de XML ---
+# --- 3. Lógica para el Lector de XML (sin cambios) ---
 def procesar_zip_con_xml(zip_file):
     datos_extraidos = []
     nombre_contribuyente = "No identificado"
@@ -29,19 +32,12 @@ def procesar_zip_con_xml(zip_file):
                     contenido_xml = zf.read(nombre_archivo)
                     root = ET.fromstring(contenido_xml)
                     ns = {'cfdi': 'http://www.sat.gob.mx/cfd/4', 'tfd': 'http://www.sat.gob.mx/TimbreFiscalDigital'}
-                    
                     emisor_node = root.find('cfdi:Emisor', ns)
                     emisor_rfc = emisor_node.get('Rfc')
-                    if nombre_contribuyente == "No identificado":
-                        nombre_contribuyente = emisor_node.get('Nombre')
-
+                    if nombre_contribuyente == "No identificado": nombre_contribuyente = emisor_node.get('Nombre')
                     fecha_str = root.get('Fecha')
-                    # Python 3.11+ puede manejar la 'Z' de UTC, versiones anteriores no.
-                    # Para compatibilidad, la eliminamos si existe.
-                    if fecha_str.endswith('Z'):
-                        fecha_str = fecha_str[:-1]
-                    fecha_dt = datetime.fromisoformat(fecha_str) # La fecha ya es consciente de la zona horaria
-                    
+                    if fecha_str.endswith('Z'): fecha_str = fecha_str[:-1]
+                    fecha_dt = datetime.fromisoformat(fecha_str)
                     receptor_rfc = root.find('cfdi:Receptor', ns).get('Rfc')
                     subtotal = float(root.get('SubTotal'))
                     total = float(root.get('Total'))
@@ -87,114 +83,130 @@ def calcular_impuestos_resico(lista_facturas, rfc_propio, mes, anio):
         'facturas_procesadas_periodo': len(facturas_del_periodo)
     }
 
-# --- 5. Generador de Papel de Trabajo Excel (CORREGIDO) ---
+# --- 5. Generador de Papel de Trabajo Excel (sin cambios) ---
 def generar_papel_de_trabajo_excel(facturas, calculo, rfc, nombre, periodo):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        # --- CORRECCIÓN DE ZONA HORARIA ---
-        # Creamos una copia para no modificar los datos en la sesión
         facturas_para_excel = [dict(f) for f in facturas]
-        # Excel no soporta fechas con zona horaria. Las convertimos a "timezone-unaware".
         for factura in facturas_para_excel:
             if factura.get('fecha') and factura['fecha'].tzinfo is not None:
                 factura['fecha'] = factura['fecha'].replace(tzinfo=None)
-
-        # Hoja de Facturación
         df_facturacion = pd.DataFrame(facturas_para_excel)
         df_facturacion.to_excel(writer, sheet_name='Facturacion', index=False)
-        
-        # Hoja de Cálculo ISR (simplificada)
         datos_isr = {
             'Concepto': ['Ingresos cobrados del mes', 'Tasa aplicable', 'Impuesto Causado', 'ISR retenido', 'Total a pagar'],
             periodo: [calculo['total_ingresos'], calculo['tasa_isr_aplicada'], calculo['impuesto_causado'], calculo['total_retenciones_isr'], calculo['isr_a_pagar']]
         }
         df_isr = pd.DataFrame(datos_isr)
         df_isr.to_excel(writer, sheet_name='Calculo ISR', index=False)
-        
-        # Hoja Resumen (simplificada)
-        datos_resumen = {
-            'Impuesto': ['ISR a Pagar', 'IVA a Pagar'],
-            'Monto': [calculo['isr_a_pagar'], calculo['iva_a_pagar']]
-        }
+        datos_resumen = { 'Impuesto': ['ISR a Pagar', 'IVA a Pagar'], 'Monto': [calculo['isr_a_pagar'], calculo['iva_a_pagar']] }
         df_resumen = pd.DataFrame(datos_resumen)
         df_resumen.to_excel(writer, sheet_name='RESUMEN', index=False)
-
     output.seek(0)
     return output
 
-# --- 6. Definición de Rutas de la Aplicación ---
+# --- 6. Lógica para el Validador de Excel (RECONSTRUIDA) ---
+def ejecutar_validacion_de_pt_generado(file):
+    resultados = []
+    # Leemos las hojas del papel de trabajo generado
+    df_facturacion = pd.read_excel(file, sheet_name='Facturacion')
+    df_isr = pd.read_excel(file, sheet_name='Calculo ISR', index_col=0)
+    df_resumen = pd.read_excel(file, sheet_name='RESUMEN', index_col=0)
+
+    # Re-calculamos los totales desde la hoja de facturación para comparar
+    ingresos_recalculados = df_facturacion['subtotal'].sum()
+    retenciones_recalculadas = df_facturacion[df_facturacion['receptor_rfc'].str.len() == 12]['isr_retenido'].sum()
+
+    # Extraemos los valores de la hoja de cálculo
+    ingresos_en_pt = df_isr.iloc[0, 0]
+    retenciones_en_pt = df_isr.iloc[3, 0]
+    pago_final_en_pt = df_isr.iloc[4, 0]
+    pago_final_en_resumen = df_resumen.iloc[0, 0]
+
+    # Validación 1: Ingresos
+    if abs(ingresos_recalculados - ingresos_en_pt) < 0.01:
+        resultados.append({'id': 1, 'punto': 'Conciliación de Ingresos (Facturación vs. Cálculo)', 'status': '✅ Correcto', 'obs': f'Los ingresos (${ingresos_en_pt:,.2f}) son consistentes.'})
+    else:
+        resultados.append({'id': 1, 'punto': 'Conciliación de Ingresos (Facturación vs. Cálculo)', 'status': '❌ Error', 'obs': f'Ingresos en cálculo (${ingresos_en_pt:,.2f}) no coinciden con la suma de facturas (${ingresos_recalculados:,.2f}).'})
+
+    # Validación 2: Retenciones
+    if abs(retenciones_recalculadas - retenciones_en_pt) < 0.01:
+        resultados.append({'id': 2, 'punto': 'Conciliación de Retenciones (Facturación vs. Cálculo)', 'status': '✅ Correcto', 'obs': f'Las retenciones (${retenciones_en_pt:,.2f}) son consistentes.'})
+    else:
+        resultados.append({'id': 2, 'punto': 'Conciliación de Retenciones (Facturación vs. Cálculo)', 'status': '❌ Error', 'obs': f'Retenciones en cálculo (${retenciones_en_pt:,.2f}) no coinciden con la suma de facturas (${retenciones_recalculadas:,.2f}).'})
+        
+    # Validación 3: Consistencia del Pago Final
+    if abs(pago_final_en_pt - pago_final_en_resumen) < 0.01:
+        resultados.append({'id': 3, 'punto': 'Consistencia del Saldo a Pagar (Cálculo vs. Resumen)', 'status': '✅ Correcto', 'obs': f'El saldo a pagar (${pago_final_en_pt:,.2f}) es consistente.'})
+    else:
+        resultados.append({'id': 3, 'punto': 'Consistencia del Saldo a Pagar (Cálculo vs. Resumen)', 'status': '❌ Error', 'obs': f'El pago del cálculo (${pago_final_en_pt:,.2f}) no coincide con el resumen (${pago_final_en_resumen:,.2f}).'})
+
+    return resultados
+
+# --- 7. Definición de Rutas de la Aplicación ---
 @app.route('/')
 def index():
     return render_template('index.html')
 
 @app.route('/procesar_zip', methods=['POST'])
 def procesar_zip():
+    # (El código de esta función no cambia)
     if 'archivo_zip' not in request.files or 'rfc_contribuyente' not in request.form or 'periodo' not in request.form:
         return "Error: Faltan datos (archivo, RFC o periodo).", 400
-    
     file = request.files['archivo_zip']
     rfc = request.form['rfc_contribuyente'].upper()
     periodo = request.form['periodo']
-    
     if file.filename == '' or rfc == '' or periodo == '':
         return "Error: Debes completar todos los campos.", 400
-        
     if file and file.filename.lower().endswith('.zip'):
         try:
             anio, mes = map(int, periodo.split('-'))
-            
             lista_facturas_total, nombre_contribuyente = procesar_zip_con_xml(file)
             calculo = calcular_impuestos_resico(lista_facturas_total, rfc, mes, anio)
-            
             facturas_a_mostrar = [f for f in lista_facturas_total if not f.get('fecha') or (f.get('fecha').month == mes and f.get('fecha').year == anio)]
-            
             session['datos_para_excel'] = {
-                'facturas': facturas_a_mostrar,
-                'calculo': calculo,
-                'rfc': rfc,
-                'nombre': nombre_contribuyente,
-                'periodo': f'{mes}-{anio}'
+                'facturas': facturas_a_mostrar, 'calculo': calculo, 'rfc': rfc,
+                'nombre': nombre_contribuyente, 'periodo': f'{mes}-{anio}'
             }
-
             return render_template('resultados_xml.html', 
-                                   facturas=facturas_a_mostrar, 
-                                   nombre_archivo=file.filename,
-                                   calculo=calculo,
-                                   periodo=f'{mes}/{anio}',
+                                   facturas=facturas_a_mostrar, nombre_archivo=file.filename,
+                                   calculo=calculo, periodo=f'{mes}/{anio}',
                                    nombre_contribuyente=nombre_contribuyente)
         except Exception as e:
             return f"Error al procesar el archivo ZIP. Detalle: {e}", 500
-            
     return "Error: El archivo debe ser de tipo .zip", 400
 
 @app.route('/descargar_excel')
 def descargar_excel():
+    # (El código de esta función no cambia)
     datos = session.get('datos_para_excel', None)
     if not datos:
-        return "Error: No hay datos para generar el archivo. Por favor, procese un ZIP primero.", 404
-    
+        return "Error: No hay datos para generar el archivo.", 404
     try:
         archivo_excel = generar_papel_de_trabajo_excel(
             datos['facturas'], datos['calculo'], datos['rfc'], datos['nombre'], datos['periodo']
         )
-        
         nombre_archivo_salida = f"PT_{datos['rfc']}_{datos['periodo']}.xlsx"
-        
         return send_file(archivo_excel, 
-                         download_name=nombre_archivo_salida,
-                         as_attachment=True,
+                         download_name=nombre_archivo_salida, as_attachment=True,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     except Exception as e:
         return f"Error al generar el archivo Excel: {e}", 500
 
 @app.route('/validar_excel', methods=['POST'])
 def validar_excel():
+    # --- CÓDIGO RECONSTRUIDO ---
     if 'archivo_excel' not in request.files: return "Error: No se encontró el archivo.", 400
     file = request.files['archivo_excel']
     if file.filename == '': return "Error: No se seleccionó ningún archivo.", 400
     if file:
         try:
-            return "Función de validación de Excel ejecutada."
+            # Llamamos a nuestra nueva función de validación
+            resultados_validacion = ejecutar_validacion_de_pt_generado(file)
+            # Mostramos los resultados en la plantilla que ya teníamos
+            return render_template('resultados_excel.html', 
+                                   resultados=resultados_validacion, 
+                                   nombre_archivo=file.filename)
         except Exception as e:
             return f"Error al procesar el archivo Excel. Detalle: {e}", 500
     return "Error inesperado.", 500
