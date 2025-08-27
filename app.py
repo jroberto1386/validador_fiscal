@@ -1,11 +1,8 @@
 # ==============================================================================
-# app.py - v3.0 - Versión Final con Generación de Papel de Trabajo
+# app.py - v3.1 - Versión Final con Corrección de Zona Horaria para Excel
 # ==============================================================================
-# Esta versión completa el ciclo:
-# 1. Lee XML desde un ZIP.
-# 2. Calcula los impuestos.
-# 3. Muestra un reporte personalizado con el nombre del contribuyente.
-# 4. Permite descargar el papel de trabajo generado en formato Excel.
+# Esta versión corrige el error al generar el archivo Excel eliminando la
+# información de zona horaria de las fechas antes de escribirlas.
 # ==============================================================================
 
 # --- 1. Importación de Librerías ---
@@ -19,7 +16,6 @@ import os
 
 # --- 2. Inicialización de la Aplicación ---
 app = Flask(__name__)
-# Se necesita una 'secret_key' para usar sesiones en Flask
 app.secret_key = os.urandom(24)
 
 # --- 3. Lógica para el Lector de XML ---
@@ -34,14 +30,18 @@ def procesar_zip_con_xml(zip_file):
                     root = ET.fromstring(contenido_xml)
                     ns = {'cfdi': 'http://www.sat.gob.mx/cfd/4', 'tfd': 'http://www.sat.gob.mx/TimbreFiscalDigital'}
                     
-                    # Extraemos el nombre del emisor (contribuyente)
                     emisor_node = root.find('cfdi:Emisor', ns)
                     emisor_rfc = emisor_node.get('Rfc')
-                    if nombre_contribuyente == "No identificado": # Tomamos el primer nombre que encontremos
+                    if nombre_contribuyente == "No identificado":
                         nombre_contribuyente = emisor_node.get('Nombre')
 
                     fecha_str = root.get('Fecha')
-                    fecha_dt = datetime.fromisoformat(fecha_str.replace('T', ' '))
+                    # Python 3.11+ puede manejar la 'Z' de UTC, versiones anteriores no.
+                    # Para compatibilidad, la eliminamos si existe.
+                    if fecha_str.endswith('Z'):
+                        fecha_str = fecha_str[:-1]
+                    fecha_dt = datetime.fromisoformat(fecha_str) # La fecha ya es consciente de la zona horaria
+                    
                     receptor_rfc = root.find('cfdi:Receptor', ns).get('Rfc')
                     subtotal = float(root.get('SubTotal'))
                     total = float(root.get('Total'))
@@ -87,12 +87,20 @@ def calcular_impuestos_resico(lista_facturas, rfc_propio, mes, anio):
         'facturas_procesadas_periodo': len(facturas_del_periodo)
     }
 
-# --- 5. NUEVO PILAR 3: Generador de Papel de Trabajo Excel ---
+# --- 5. Generador de Papel de Trabajo Excel (CORREGIDO) ---
 def generar_papel_de_trabajo_excel(facturas, calculo, rfc, nombre, periodo):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # --- CORRECCIÓN DE ZONA HORARIA ---
+        # Creamos una copia para no modificar los datos en la sesión
+        facturas_para_excel = [dict(f) for f in facturas]
+        # Excel no soporta fechas con zona horaria. Las convertimos a "timezone-unaware".
+        for factura in facturas_para_excel:
+            if factura.get('fecha') and factura['fecha'].tzinfo is not None:
+                factura['fecha'] = factura['fecha'].replace(tzinfo=None)
+
         # Hoja de Facturación
-        df_facturacion = pd.DataFrame(facturas)
+        df_facturacion = pd.DataFrame(facturas_para_excel)
         df_facturacion.to_excel(writer, sheet_name='Facturacion', index=False)
         
         # Hoja de Cálculo ISR (simplificada)
@@ -140,7 +148,6 @@ def procesar_zip():
             
             facturas_a_mostrar = [f for f in lista_facturas_total if not f.get('fecha') or (f.get('fecha').month == mes and f.get('fecha').year == anio)]
             
-            # Guardamos los datos en la sesión para poder descargarlos después
             session['datos_para_excel'] = {
                 'facturas': facturas_a_mostrar,
                 'calculo': calculo,
@@ -160,7 +167,6 @@ def procesar_zip():
             
     return "Error: El archivo debe ser de tipo .zip", 400
 
-# --- NUEVA RUTA PARA DESCARGAR EL EXCEL ---
 @app.route('/descargar_excel')
 def descargar_excel():
     datos = session.get('datos_para_excel', None)
@@ -181,16 +187,13 @@ def descargar_excel():
     except Exception as e:
         return f"Error al generar el archivo Excel: {e}", 500
 
-# --- Ruta para Validador de Excel (sin cambios) ---
 @app.route('/validar_excel', methods=['POST'])
 def validar_excel():
-    # El código de esta función no cambia
     if 'archivo_excel' not in request.files: return "Error: No se encontró el archivo.", 400
     file = request.files['archivo_excel']
     if file.filename == '': return "Error: No se seleccionó ningún archivo.", 400
     if file:
         try:
-            # ... (código de validación de excel omitido por brevedad) ...
             return "Función de validación de Excel ejecutada."
         except Exception as e:
             return f"Error al procesar el archivo Excel. Detalle: {e}", 500
